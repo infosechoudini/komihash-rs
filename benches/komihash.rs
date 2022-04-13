@@ -1,3 +1,7 @@
+// No need to bench *8, *16, *32, *64, or *128 because it is instant 
+// We only care about bytes arrays and strings that are unstructured
+
+
 use komihash_rs::Komihash;
 use core::hash::{Hasher, Hash};
 use criterion::{criterion_group, criterion_main, black_box};
@@ -65,39 +69,6 @@ fn bench_long_str(b: &mut Bencher) {
 }
 
 
-fn bench_u32(b: &mut Bencher) {
-    let u = 162629500u32;
-    let u = black_box(u);
-    b.bench_function("kh bench_u32", |b| {
-        b.iter(|| {
-            hash(&u);
-        })
-    });
-}
-
-
-fn bench_u32_keyed(b: &mut Bencher) {
-    let u = 162629500u32;
-    let u = black_box(u);
-    b.bench_function("kh bench_u32_keyed", |b| {
-        b.iter(|| {
-            hash(&u);
-        })
-    });
-}
-
-
-fn bench_u64(b: &mut Bencher) {
-    let u = 16262950014981195938u64;
-    let u = black_box(u);
-    b.bench_function("kh bench_u64", |b| {
-        b.iter(|| {
-            hash(&u);
-        })
-    });
-}
-
-
 fn bench_bytes_4(b: &mut Bencher) {
     let u = black_box([b' '; 4]);
     b.bench_function("kh bench_bytes_4", |b| {
@@ -158,6 +129,6 @@ fn bench_bytes_c_128(b: &mut Bencher) {
 }
 
 
-criterion_group!(benches, bench_str_under_8_bytes, bench_str_of_8_bytes, bench_str_over_8_bytes, bench_long_str, bench_u32 ,bench_u32_keyed , bench_u64, bench_bytes_4, bench_bytes_7, bench_bytes_8, bench_bytes_a_16, bench_bytes_b_32, bench_bytes_c_128);
+criterion_group!(benches, bench_str_under_8_bytes, bench_str_of_8_bytes, bench_str_over_8_bytes, bench_long_str, bench_bytes_4, bench_bytes_7, bench_bytes_8, bench_bytes_a_16, bench_bytes_b_32, bench_bytes_c_128);
 
 criterion_main!(benches);

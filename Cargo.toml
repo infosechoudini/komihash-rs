@@ -8,21 +8,30 @@ edition = "2021"
 [dependencies]
 
 
+[net]
+retry = 2                 
+git-fetch-with-cli = true 
+
 [dev-dependencies]
 criterion = { version = "0.3", features = ["html_reports"]}
 fxhash = "0.2.1"
 seahash = "3.0.5"
 fnv = "1.0.5"
+hashbrown = {version = "0.3" }
 
 [[test]]
 name = "komihash_tests"
 path = "tests/lib.rs"
 
 [[bench]]
-name = "allbenches"
+name = "all_benches"
 path = "benches/bench.rs"
 
 [[bench]]
 name = "komibench"
 path = "benches/komihash.rs"
 harness = false
+
+[[bench]]
+name = "hashmap_benches"
+path = "benches/hashmap.rs"

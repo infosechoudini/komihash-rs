@@ -1,0 +1,27 @@
+//Komihash Hashmap
+running 10 tests
+test find_existing           ... bench:      15,563 ns/iter (+/- 1,156)
+test find_existing_high_bits ... bench:      18,596 ns/iter (+/- 716)
+test find_nonexisting        ... bench:      15,660 ns/iter (+/- 1,548)
+test get_remove_insert       ... bench:         103 ns/iter (+/- 35)
+test grow_by_insertion       ... bench:         174 ns/iter (+/- 25)
+test grow_by_insertion_kb    ... bench:         161 ns/iter (+/- 24)
+test hashmap_as_queue        ... bench:          61 ns/iter (+/- 26)
+test insert_8_char_string    ... bench:      27,718 ns/iter (+/- 3,281)
+test new_drop                ... bench:           1 ns/iter (+/- 0)
+test new_insert_drop         ... bench:          58 ns/iter (+/- 2)
+
+//FxHash Hashmap
+running 10 tests
+test find_existing           ... bench:      15,106 ns/iter (+/- 1,110)
+test find_existing_high_bits ... bench:      18,760 ns/iter (+/- 1,070)
+test find_nonexisting        ... bench:      14,903 ns/iter (+/- 851)
+test get_remove_insert       ... bench:         106 ns/iter (+/- 43)
+test grow_by_insertion       ... bench:         176 ns/iter (+/- 23)
+test grow_by_insertion_kb    ... bench:         161 ns/iter (+/- 18)
+test hashmap_as_queue        ... bench:          58 ns/iter (+/- 10)
+test insert_8_char_string    ... bench:      27,581 ns/iter (+/- 990)
+test new_drop                ... bench:           1 ns/iter (+/- 0)
+test new_insert_drop         ... bench:          56 ns/iter (+/- 1)
+
+//Hashbrown Hashmap
