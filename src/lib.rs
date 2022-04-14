@@ -1,19 +1,23 @@
+#![feature(bigint_helper_methods)]
 #[allow(unused)]
 
+
 use std::convert::TryInto;
-use std::hash::{Hasher, BuildHasher, BuildHasherDefault};
+use std::hash::Hasher;
+use std::hash::BuildHasher;
+use std::hash::BuildHasherDefault;
 use std::collections::{HashMap, HashSet};
+use std::ops::BitOr;
+//use hashbrown::hash_map::DefaultHashBuilder;
+//use hashbrown::{HashMap, HashSet};
 
+pub mod hash_map;
 
+#[macro_use]
+mod convert;
 
-/// A builder for default Kh hashers.
-pub type KhBuildHasher = BuildHasherDefault<KomihashBuilder>;
+use crate::convert::Convert;
 
-/// A `HashMap` using a default Kh hasher.
-pub type KhHashMap<K, V> = HashMap<K, V, KhBuildHasher>;
-
-/// A `HashSet` using a default Komihash.
-pub type KhHashSet<V> = HashSet<V, KhBuildHasher>;
 
 #[allow(dead_code)]
 fn komihash_bytesw32(v: u32) -> u32 {
@@ -49,23 +53,15 @@ pub fn kh_lu64ec(p: &[u8] ) -> u64 {
 }
 
 
-#[inline]
+#[inline(always)]
 fn read_64(data: &[u8]) -> u64 {
-    let mut v = 0;
-    for i in 0..8 {
-        v |= (data[i] as u64) << (i * 8);
-    }
-    v
+    unsafe { (data.as_ptr() as *const u64).read_unaligned().to_le() }
 }
 
 
-#[inline]
-fn read_32(data: &[u8]) -> u32 {
-    let mut v = 0;
-    for i in 0..4 {
-        v |= (data[i] as u32) << (i * 8);
-    }
-    v
+#[inline(always)]
+fn read_32(data: &[u8]) -> u64 {
+    unsafe { (data.as_ptr() as *const u32).read_unaligned().to_le() as u64 }
 }
 
 
@@ -104,13 +100,10 @@ fn kh_lpu64ec_l4(msg: &[u8], fb: u64) -> u64 {
 
 
 
-#[inline]
+#[inline(always)]
 fn kh_m128(ab: u64, cd: u64) -> (u64, u64) {
 
-    let r = (ab * cd) as u128;
-    let rl = r as u64;
-    let rh = (r >> 64) as u64;
-
+    let (rl, rh) = ab.widening_mul(cd);
     return (rl, rh);
 
 }
@@ -142,7 +135,7 @@ pub struct Komihash{
 impl Komihash{
 
     //Used for anything less than 7 Bytes
-    #[inline]
+    #[inline(always)]
     fn kh_lpu64ec_nz(&mut self, msg: &[u8], mut fb: u64) -> u64 {
         let msglen = msg.len();
         if msglen < 4 {
@@ -167,9 +160,37 @@ impl Komihash{
         }
     }
 
+    fn kh_less_4b(&mut self, msg: &[u8], mut fb: u64) -> u64 {
+        let msglen = msg.len();
+        fb <<= msglen << 3;
+        let mut m = msg[0] as u64;
+        
+        if msglen > 2{
+            m |= (msg[1] as u64) << 8_u64;
+            m |= (msg[2] as u64) << 16_u64;
+        } else  {
+            m |= (msg[1] as u64) << 8_u64;
+        }
 
-    #[inline]
-    fn kh_64_bytes(&mut self, mut m_clone: &[u8]){
+        return fb | m 
+    }
+
+
+    #[inline(always)]
+    fn kh_eq_4b(&mut self, msg: &[u8], mut fb: u64) -> u64 {
+        let msglen = msg.len();
+        let ml8 = msglen << 3;
+        let mh = read_32(&msg[msglen - 4 ..]) as u64;
+        let ml = read_32(&msg[..4]) as u64;
+
+        fb << ml8 | ml | (mh >> (64 - ml8)) << 32
+        
+
+    }
+
+
+    #[inline(always)]
+    fn kh_64_bytes(&mut self, mut m_clone: &[u8]) -> usize{
 
         
         while m_clone.len() > 63 {
@@ -193,25 +214,27 @@ impl Komihash{
 
             m_clone = &m_clone[64..]
         }
+
+        m_clone.len()
     
     }
 
 
-    #[inline]
+    #[inline(always)]
     fn komihash_hash16(&mut self, m: &[u8]) {
         (self.r1l, self.r1h) = kh_m128(self.seed1 ^ read_64(&m[..8]), self.seed5 ^ read_64(&m[m.len() - 8..]));
         self.seed5 += self.r1h;
         self.seed1 = self.seed5 ^ self.r1l;
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn komihash_hashround(&mut self) {
         (self.r2l, self.r2h) = kh_m128(self.seed1, self.seed5);
         self.seed5 += self.r2h;
         self.seed1 = self.seed5 ^ self.r2l;
     }
     
-    #[inline]
+    #[inline(always)]
     pub fn komihash_hashfin(&mut self) {
         (self.r1l, self.r1h) = kh_m128(self.r2l, self.r2h);
         self.seed5 += self.r1h;
@@ -219,7 +242,7 @@ impl Komihash{
         self.komihash_hashround();
     }
 
-    #[inline]
+    #[inline(always)]
     fn new(useseed: u64) -> Self {
         let seed1 = 0x243F6A8885A308D3_u64 ^ ( useseed & 0x5555555555555555_u64 );
         let seed5 = 0x452821E638D01377_u64 ^ ( useseed & 0xAAAAAAAAAAAAAAAA_u64 );
@@ -251,12 +274,15 @@ impl Komihash{
         kh.seed7 = 0xC0AC29B7C97C50DD ^ kh.seed5;
         kh.seed8 = 0x3F84D5B5B5470917 ^ kh.seed5;
 
+        kh.r2l = kh.seed1;
+        kh.r2h = kh.seed5;
+
         kh
     }
 
 
     //Anything less than 16 bytes
-    #[inline]
+    #[inline(always)]
     fn write_less_b16(&mut self, m: &[u8]){
         let msglen = m.len();
         self.r2l = self.seed1;
@@ -275,7 +301,7 @@ impl Komihash{
 
 
     //16..31 bytes
-    #[inline]
+    #[inline(always)]
     fn write_16_31(&mut self, m: &[u8]){
         let mut msglen = m.len();
         self.komihash_hash16(&m);
@@ -286,7 +312,7 @@ impl Komihash{
     }
 
     // 16..31
-    #[inline]
+    #[inline(always)]
     fn write_less_b32(&mut self, m: &[u8]){
         let mut msglen = m.len();
 
@@ -306,23 +332,21 @@ impl Komihash{
         return
     }
 
-    #[inline]
+    #[inline(always)]
     fn seed_xor(&mut self) {
         self.seed5 ^= self.seed6 ^ self.seed7 ^ self.seed8;
         self.seed1 ^= self.seed2 ^ self.seed3 ^ self.seed4;
     }
 
-    #[inline]
+    #[inline(always)]
     fn over_64(&mut self, mut m: &[u8]){
         let mut msglen = m.len();
 
-        let chunk_float = (m.len() as f64 / 64.0) as f64;
+        let rem = self.kh_64_bytes(&m);
 
-        let chunks = chunk_float.floor() as usize;
-        self.kh_64_bytes(&m);
+        m = &m[msglen - rem..];
 
-        m = &m[chunks * 64 ..];
-        msglen -= chunks * 64;
+        msglen = rem;
             
         self.seed_xor();
 
@@ -369,102 +393,117 @@ impl Komihash{
 
 impl Hasher for Komihash {
 
-    #[inline]
+    #[inline(always)]
     fn write(&mut self, mut m: &[u8]) {
         let msglen = m.len();
-
-
-        /*
-
-        if msglen == 0 {
-            return;
-        }
-
-        if msglen < 8 {
-            self.r2l = self.seed1;
-            self.r2h = self.seed5;
-            self.r2l ^= self.kh_lpu64ec_nz(&m, 1 << (&m[0] >> 7)); //anything less than 7 bytes
-            return;          
-        }
-
-        if msglen < 16 {
-            self.r2l = self.seed1;
-            self.r2h = self.seed5;
-            self.r2h ^= kh_lpu64ec_l3(&m, 1 << (&m[msglen - 1]>> 7));
-            self.r2l ^= read_64(&m[..8]); 
-            return;
-        }
-
-        if msglen < 32 {
-            self.write_16_31(&m);
-            return;
-        }
-
-        if msglen < 64 {
-            self.seed_xor();
-            self.komihash_hash16(&m[..16]);
-            self.komihash_hash16(&m[16..32]);
-            return;         
-        }
-
-        self.over_64(&m);
-        return;
-
-        */
     
         match msglen {
             0 => return,
 
-            1..=7 => {
+            1 => {
                 self.r2l = self.seed1;
                 self.r2h = self.seed5;
                 self.r2l ^= self.kh_lpu64ec_nz(&m, 1 << (&m[0] >> 7)); //anything less than 7 bytes
+                self.komihash_hashfin();
                 return;
             }
 
-            8..=15 => {
-                let msglen = m.len();
+            2..=3 =>{
+                self.r2l = self.seed1;
+                self.r2h = self.seed5;
+                let mut fb = 1 << (&m[0] >> 7);
+
+                fb <<= msglen << 3;
+                let mut msg = m[0] as u64;
+                
+                if msglen > 2{
+                    msg |= (m[1] as u64) << 8_u64;
+                    msg |= (m[2] as u64) << 16_u64;
+                } else if msglen > 1 {
+                    msg |= (m[1] as u64) << 8_u64;
+                }
+        
+                self.r2l ^= fb | msg;
+                self.komihash_hashfin();
+                return;
+            }
+
+            4 => {
+                self.r2l = self.seed1;
+                self.r2h = self.seed5;
+                self.r2l ^= self.kh_eq_4b(&m, 1 << (&m[0] >> 7)); //anything less than 7 bytes  
+                self.komihash_hashfin();
+                return;
+            }
+
+            5..=7 => {
+                self.r2l = self.seed1;
+                self.r2h = self.seed5;
+
+                let mut fb = 1 << (&m[0] >> 7);
+
+                let ml8 = msglen << 3;
+                let mh = read_32(&m[msglen - 4 ..]);
+                let ml = read_32(&m[..4]);
+        
+                self.r2l ^= fb << ml8 | ml | (mh >> (64 - ml8)) << 32;
+                self.komihash_hashfin();
+                return;
+            }
+
+            8 => {                
+                let ml = read_32(&m[4 .. ]);
+                let mh = read_32(&m[ .. 4]);
+                self.r2h ^=  (1 << (&m[7]>> 7)) << (m.len() << 3) | ml | ((mh >> (64 - (m.len()  << 3))) << 32);
+                self.r2l ^= read_64(&m[..]);
+                self.komihash_hashfin();
+                return;
+
+            }
+            9..=15 => {
                 self.r2l = self.seed1;
                 self.r2h = self.seed5;
                 self.r2h ^= kh_lpu64ec_l3(&m, 1 << (&m[msglen - 1]>> 7));
                 self.r2l ^= read_64(&m[..8]); 
+                self.komihash_hashfin();
                 return;
             }
 
             16..=31 => {
-                self.write_16_31(&m);
+                self.komihash_hash16(&m);
+                let fb = 1 << ( &m[msglen-1] >> 7 ) as u64;
+                self.r2h = self.seed1 ^ kh_lpu64ec_l4(&m[msglen - 16 .. msglen - 1], fb);
+                self.r2l = self.seed5;
+                self.komihash_hashfin();
                 return;
             }
             32..=63 => {
                 self.seed_xor();
                 self.komihash_hash16(&m[..16]);
                 self.komihash_hash16(&m[16..32]);
+                self.komihash_hashfin();
                 return;
             }
             _ => {
                 self.over_64(&m);
+                self.komihash_hashfin();
                 return;
             }
         }
         
     }
 
-    #[inline]
+    #[inline(always)]
     fn finish(&self) -> u64 {
-        let mut kh = *self;
-        kh.komihash_hashfin();
-        kh.seed1
+        self.seed1
     }
 
-    #[inline]
+    #[inline(always)]
     fn write_u8(&mut self, i: u8) { 
-        let m = u8::to_ne_bytes(i);
-        self.r2l = self.seed1;
-        self.r2h = self.seed5;
-        self.r2l ^= self.kh_lpu64ec_nz(&m, 1 << (&m[0] >> 7)); //anything less than 7 bytes
+        self.write(&[i]);
     }
 
-    #[inline]
+    #[inline(always)]
     fn write_u16(&mut self, i: u16) {
         let m = u16::to_ne_bytes(i);
         self.r2l = self.seed1;
@@ -472,27 +511,20 @@ impl Hasher for Komihash {
         self.r2l ^= self.kh_lpu64ec_nz(&m, 1 << (&m[0] >> 7)); //anything less than 7 bytes
     }
 
-    #[inline]
+    #[inline(always)]
     fn write_u32(&mut self, i: u32) { 
-        let m = u32::to_ne_bytes(i);
-        self.r2l = self.seed1;
-        self.r2h = self.seed5;
-        self.r2l ^= self.kh_lpu64ec_nz(&m, 1 << (&m[0] >> 7)); //anything less than 7 bytes
+        self.write(&i.to_le_bytes());
  
     }
 
-    #[inline]
+    #[inline(always)]
     fn write_u64(&mut self, i: u64) { 
-        let m = u64::to_ne_bytes(i);
-        let msglen = m.len();
-        self.r2l = self.seed1;
-        self.r2h = self.seed5;
-        self.r2h ^= kh_lpu64ec_l3(&m, 1 << (&m[msglen - 1]>> 7));
-        self.r2l ^= read_64(&m[..8]); 
+        let m: [u8; 8] = i.convert();
+        self.write(&m);
     }
 
 
-    #[inline]
+    #[inline(always)]
     fn write_u128(&mut self, i: u128) { 
         let m = u128::to_ne_bytes(i);
         let msglen = m.len();
@@ -502,13 +534,18 @@ impl Hasher for Komihash {
         self.r2l = self.seed5;
     }
 
-    #[inline]
+    #[inline(always)]
     fn write_i8(&mut self, i: i8) {
         let m = i8::to_ne_bytes(i);
-        self.r2l ^= self.kh_lpu64ec_nz(&m, 1 << (&m[0] >> 7)); //anything less than 7 bytes
+        self.r2l = self.seed1;
+        self.r2h = self.seed5;
+        let mut fb = 1 << (&m[0] >> 7);
+        fb <<= 1 << 3;
+        let msg = m[0] as u64;
+        self.r2l ^= fb | msg;
     }
 
-    #[inline]
+    #[inline(always)]
     fn write_i16(&mut self, i: i16) { 
         let m = i16::to_ne_bytes(i);
         self.r2l = self.seed1;
@@ -516,7 +553,7 @@ impl Hasher for Komihash {
         self.r2l ^= self.kh_lpu64ec_nz(&m, 1 << (&m[0] >> 7)); //anything less than 7 bytes    
     }
 
-    #[inline]
+    #[inline(always)]
     fn write_i32(&mut self, i: i32) { 
         let m = i32::to_ne_bytes(i);
         self.r2l = self.seed1;
@@ -524,16 +561,16 @@ impl Hasher for Komihash {
         self.r2l ^= self.kh_lpu64ec_nz(&m, 1 << (&m[0] >> 7)); //anything less than 7 bytes    
     }
 
-    #[inline]
+    #[inline(always)]
     fn write_i64(&mut self, i: i64) {
-        let m = i64::to_ne_bytes(i);
+        let m = i64::to_le_bytes(i);
         self.r2l = self.seed1;
         self.r2h = self.seed5;
         self.r2h ^= kh_lpu64ec_l3(&m, 1 << (&m[m.len() - 1]>> 7));
         self.r2l ^= read_64(&m[..8]); 
     }
 
-    #[inline]
+    #[inline(always)]
     fn write_i128(&mut self, i: i128) {
         let m = i128::to_ne_bytes(i);
         self.komihash_hash16(&m);
@@ -542,87 +579,44 @@ impl Hasher for Komihash {
         self.r2l = self.seed5;
     }
 
-    #[inline]
+    #[inline(always)]
     #[cfg(target_pointer_width = "32")]
     fn write_usize(&mut self, i: usize) {
-        let m = u32::to_ne_bytes(i as u32);
-        self.r2l = self.seed1;
-        self.r2h = self.seed5;
-        self.r2l ^= self.kh_lpu64ec_nz(&m, 1 << (&m[0] >> 7)); //anything less than 7 bytes      
+        self.write(i.convert());
     }
-    #[inline]
+    
+    #[inline(always)]
     #[cfg(target_pointer_width = "64")]
     fn write_usize(&mut self, i: usize) {
-        let m = u64::to_ne_bytes(i as u64);
-        let msglen = m.len();
-        self.r2l = self.seed1;
-        self.r2h = self.seed5;
-        self.r2h ^= kh_lpu64ec_l3(&m, 1 << (&m[msglen - 1]>> 7));
-        self.r2l ^= read_64(&m[..8]);     
+        let m = &i.convert();   
+        let ml = read_32(&m[4 .. ]);
+        let mh = read_32(&m[ .. 4]);
+        self.r2h ^=  (1 << (&m[7]>> 7)) << (m.len() << 3) | ml | ((mh >> (64 - (m.len()  << 3))) << 32);
+        self.r2l ^= read_64(&m[..]);
+        self.komihash_hashfin();
     }
-    #[inline]
+
+    #[inline(always)]
     #[cfg(target_pointer_width = "32")]
     fn write_isize(&mut self, i: isize) {
-        let m = i32::to_ne_bytes(i as i32);
-        self.r2l = self.seed1;
-        self.r2h = self.seed5;
-        self.r2l ^= self.kh_lpu64ec_nz(&m, 1 << (&m[0] >> 7)); //anything less than 7 bytes      
+        self.write(&i.to_le_bytes());   
     }
-    #[inline]
+    #[inline(always)]
     #[cfg(target_pointer_width = "64")]
     fn write_isize(&mut self, i: isize) {
-        let m = i64::to_ne_bytes(i as i64);
-        let msglen = m.len();
-        self.r2l = self.seed1;
-        self.r2h = self.seed5;
-        self.r2h ^= kh_lpu64ec_l3(&m, 1 << (&m[msglen - 1]>> 7));
-        self.r2l ^= read_64(&m[..8]);     
+        self.write(&i.to_le_bytes());  
     }
 }
-    
 
 
 impl Default for Komihash{
     #[inline]
     fn default() -> Self {
-        KomihashBuilder::new(0_u64).build()
+        Komihash::new(0)
     }
 }
 
 
-#[derive(Clone, Copy, Debug)]
-pub struct KomihashBuilder {
-    _seed: u64,
-    hasher: Komihash,
-}
 
-impl KomihashBuilder {
-    #[inline]
-    ///Creates builder with provided `seed`
-    pub fn new(seed: u64) -> Self {
-        Self {
-            _seed: seed,
-            hasher: Komihash::new(seed)
-        }
-    }
-
-    #[inline]
-    ///Creates hasher.
-    pub fn build(&self) -> Komihash {
-        let mut kh = self.hasher;
-        kh.komihash_hashround();
-        kh
-    }
-}
-
-
-impl BuildHasher for KomihashBuilder {
-    type Hasher = Komihash;
-
-    #[inline]
-    fn build_hasher(&self) -> Self::Hasher {
-        self.build()
-        
-    }
-}
-
+    
+    

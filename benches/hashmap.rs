@@ -5,11 +5,12 @@ extern crate test;
 use std::hash::Hash;
 use test::Bencher;
 
-use hashbrown::HashMap;
+//use hashbrown::HashMap;
 //use rustc_hash::FxHashMap as HashMap;
 //use std::collections::HashMap;
-//use komihash_rs::KhHashMap as Hashmap;
-//use fxhash::FxHashMap as Hashmap;
+use komihash_rs::KhHashMap as HashMap;
+//use fxhash::FxHashMap as HashMap;
+//use ahash::AHashMap as HashMap;
 
 fn new_map<K: Eq + Hash, V>() -> HashMap<K, V> {
     HashMap::default()

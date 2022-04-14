@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-
+hashbrown = { version = "0.12", features=["rayon"]}
 
 [net]
 retry = 2                 
@@ -17,14 +17,17 @@ criterion = { version = "0.3", features = ["html_reports"]}
 fxhash = "0.2.1"
 seahash = "3.0.5"
 fnv = "1.0.5"
-hashbrown = {version = "0.3" }
+ahash = "0.7.6"
+hashbrown = "0.12"
+lazy_static = "1.4"
+
 
 [[test]]
 name = "komihash_tests"
 path = "tests/lib.rs"
 
 [[bench]]
-name = "all_benches"
+name = "speed_bench"
 path = "benches/bench.rs"
 
 [[bench]]
@@ -35,3 +38,8 @@ harness = false
 [[bench]]
 name = "hashmap_benches"
 path = "benches/hashmap.rs"
+
+[[bench]]
+name = "hashmap_benches2"
+path = "benches/hashmap_two.rs"
+
